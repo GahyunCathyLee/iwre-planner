@@ -1,0 +1,16 @@
+scenario_id: 90
+scenario_name: random_batch
+type: random_batch
+map: Town04
+fps: 10
+steps: 200
+seed: 42
+behavior_mix: [constant_speed, sudden_brake, sudden_accel, cut_in_left, cut_in_right]
+ego:
+  spawn:
+    index: 0
+noise:
+  mode: medium
+  high_noise_bias: 0.6
+ego_maneuver:
+  mode: lane_keep

@@ -1,0 +1,12 @@
+scenario_id,scenario_name,scenario_file,description
+1,lf_basic,configs/scenarios/lf_basic.yaml,Lane following with normal traffic
+2,front_sudden_brake,configs/scenarios/front_sudden_brake.yaml,Front vehicle suddenly brakes
+3,front_sudden_accel,configs/scenarios/front_sudden_accel.yaml,Front vehicle suddenly accelerates
+4,cut_in_left,configs/scenarios/cut_in_left.yaml,Left-lane vehicle cuts into ego lane
+5,cut_in_right,configs/scenarios/cut_in_right.yaml,Right-lane vehicle cuts into ego lane
+6,ego_lane_change_scripted_left,configs/scenarios/ego_lane_change_scripted_left.yaml,Ego performs fixed left lane change
+7,ego_lane_change_scripted_right,configs/scenarios/ego_lane_change_scripted_right.yaml,Ego performs fixed right lane change
+8,ego_lane_change_conditional_left,configs/scenarios/ego_lane_change_conditional_left.yaml,Ego changes left only when target lane gap is safe
+9,ego_lane_change_conditional_right,configs/scenarios/ego_lane_change_conditional_right.yaml,Ego changes right only when target lane gap is safe
+10,dense_mixed,configs/scenarios/dense_mixed.yaml,Dense traffic with mixed scripted behaviors
+90,random_batch,configs/scenarios/random_batch.yaml,Template that generates one randomized scenario per seed

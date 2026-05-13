@@ -1,0 +1,75 @@
+scenario_id: 5
+scenario_name: cut_in_right
+map: Town04
+fps: 10
+steps: 200
+seed: 42
+ego:
+  spawn:
+    index: 0
+background_spawn:
+  mode: none
+noise:
+  mode: medium
+ego_maneuver:
+  mode: lane_keep
+actors:
+  - id: right_cut_in
+    role: scripted
+    spawn: {index: 0, offset: 20, lane_offset: -1}
+    autopilot: false
+    cut_in_actor: true
+    behavior:
+      type: cut_in_right
+      start_step: 110
+      duration_steps: 90
+      throttle: 0.35
+      steer: 0.18
+  - id: preceding_candidate
+    role: slot_candidate
+    spawn: {index: 0, offset: 45, lane_offset: 0}
+    autopilot: true
+    spawn_probability: 0.62
+    behavior: {type: none}
+  - id: following_candidate
+    role: slot_candidate
+    spawn: {index: 0, offset: -25, lane_offset: 0}
+    autopilot: true
+    spawn_probability: 0.54
+    behavior: {type: none}
+  - id: leftPreceding_candidate
+    role: slot_candidate
+    spawn: {index: 0, offset: 35, lane_offset: 1}
+    autopilot: true
+    spawn_probability: 0.73
+    behavior: {type: none}
+  - id: leftAlongside_candidate
+    role: slot_candidate
+    spawn: {index: 0, offset: 0, lane_offset: 1}
+    autopilot: true
+    spawn_probability: 0.61
+    behavior: {type: none}
+  - id: leftFollowing_candidate
+    role: slot_candidate
+    spawn: {index: 0, offset: -25, lane_offset: 1}
+    autopilot: true
+    spawn_probability: 0.49
+    behavior: {type: none}
+  - id: rightPreceding_candidate
+    role: slot_candidate
+    spawn: {index: 0, offset: 35, lane_offset: -1}
+    autopilot: true
+    spawn_probability: 0.69
+    behavior: {type: none}
+  - id: rightAlongside_candidate
+    role: slot_candidate
+    spawn: {index: 0, offset: 0, lane_offset: -1}
+    autopilot: true
+    spawn_probability: 0.57
+    behavior: {type: none}
+  - id: rightFollowing_candidate
+    role: slot_candidate
+    spawn: {index: 0, offset: -25, lane_offset: -1}
+    autopilot: true
+    spawn_probability: 0.45
+    behavior: {type: none}
