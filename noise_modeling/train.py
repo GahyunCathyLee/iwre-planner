@@ -22,6 +22,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", required=True)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--limit-shards", type=int, default=None)
+    parser.add_argument("--output-dir", default=None, help="Override config output_dir.")
     return parser.parse_args()
 
 
@@ -122,6 +123,8 @@ def append_metrics(path: Path, row: Dict[str, object]) -> None:
 def main() -> None:
     args = parse_args()
     config = load_config(args.config)
+    if args.output_dir is not None:
+        config["output_dir"] = args.output_dir
     set_seed(int(config.get("seed", 42)))
     device = torch.device(args.device)
 
@@ -152,6 +155,7 @@ def main() -> None:
     output_dir = Path(config["output_dir"]) / config["experiment_name"]
     output_dir.mkdir(parents=True, exist_ok=True)
     save_json(output_dir / "config.json", config)
+    print(f"[INFO] checkpoints: {output_dir}")
 
     best_val = float("inf")
     patience = int(config["training"].get("early_stopping_patience", 15))
@@ -191,6 +195,7 @@ def main() -> None:
                 },
                 output_dir / "best.pt",
             )
+            print(f"[INFO] saved best checkpoint: {output_dir / 'best.pt'}")
         else:
             stale_epochs += 1
             if stale_epochs >= patience:

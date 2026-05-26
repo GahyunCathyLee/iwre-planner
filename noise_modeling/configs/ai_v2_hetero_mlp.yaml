@@ -1,6 +1,6 @@
 experiment_name: ai_v2_hetero_mlp
 seed: 42
-output_dir: outputs/noise_modeling/checkpoints
+output_dir: /content/drive/MyDrive/iwre-planner/outputs/noise_modeling/checkpoints
 
 data:
   npz_root: outputs/noise_modeling/npz
@@ -28,4 +28,3 @@ training:
   early_stopping_patience: 15
   num_workers: 2
   grad_clip: 5.0
-

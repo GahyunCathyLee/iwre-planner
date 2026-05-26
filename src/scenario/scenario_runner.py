@@ -48,6 +48,14 @@ class ScenarioRunner:
         self.planner_name = args.planner.upper()
         if self.planner_name != "B1":
             raise NotImplementedError("ScenarioRunner currently supports only planner B1.")
+        self.alpha_runtime = None
+        if getattr(args, "alpha_model_path", None):
+            from interaction.grip_alpha_runtime import GRIPAlphaRuntime
+
+            self.alpha_runtime = GRIPAlphaRuntime(
+                checkpoint_path=args.alpha_model_path,
+                history=int(getattr(args, "alpha_history", 6)),
+            )
 
     def run(self):
         random.seed(self.scenario_config.seed)
@@ -457,7 +465,39 @@ class ScenarioRunner:
                 "collision": int(collision),
             })
 
+        self._apply_runtime_alpha(rows, ego_velocity)
         return rows
+
+    def _apply_runtime_alpha(self, rows, ego_velocity):
+        if self.alpha_runtime is None or not rows:
+            return
+
+        ego_state = {"ego_vx": ego_velocity.x, "ego_vy": ego_velocity.y}
+        neighbors_by_slot = {}
+        for row in rows:
+            slot = row.get("slot", "")
+            if not slot:
+                continue
+            neighbors_by_slot[slot] = {
+                "dx_obs": float(row["dx_obs"]),
+                "dy_obs": float(row["dy_obs"]),
+                "vx_obs": float(row["vx_obs"]),
+                "vy_obs": float(row["vy_obs"]),
+            }
+
+        self.alpha_runtime.update(ego_state, neighbors_by_slot)
+        alpha_by_slot = self.alpha_runtime.predict()
+        if not alpha_by_slot:
+            return
+
+        for row in rows:
+            slot = row.get("slot", "")
+            if slot not in alpha_by_slot:
+                continue
+            alpha = alpha_by_slot[slot]
+            sigma = float(row["sigma_estimated"])
+            row["alpha"] = f"{alpha:.3f}"
+            row["risk"] = f"{sigma * alpha:.3f}"
 
     def _noise_mode(self):
         return str(self.scenario_config.noise.get("mode", "none")).lower()

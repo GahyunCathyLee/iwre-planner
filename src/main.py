@@ -62,6 +62,8 @@ def get_args():
     parser.add_argument("--noise-scale", type=float, default=None)
     parser.add_argument("--planner", default="B1", choices=["B1", "B2", "B3", "b1", "b2", "b3"])
     parser.add_argument("--run-id", default=None)
+    parser.add_argument("--alpha-model-path", default=None, help="Optional GRIP alpha checkpoint for online alpha logging.")
+    parser.add_argument("--alpha-history", type=int, default=6)
     parser.add_argument("--verbose", action="store_true")
 
     parser.add_argument("--log-path", default=f"{LOG_DIR}/b1_idm_log.csv")

@@ -10,7 +10,7 @@ Smoke test on a tiny subset:
 
 ```bash
 python -m noise_modeling.train --config noise_modeling/configs/ai_v2_hetero_mlp.yaml --limit-shards 2
-python -m noise_modeling.evaluate --checkpoint outputs/noise_modeling/checkpoints/ai_v2_hetero_mlp/best.pt --split test --limit-shards 2
+python -m noise_modeling.evaluate --checkpoint /content/drive/MyDrive/iwre-planner/outputs/noise_modeling/checkpoints/ai_v2_hetero_mlp/best.pt --split test --limit-shards 2
 ```
 
 Full training:
@@ -24,8 +24,7 @@ python -m noise_modeling.train --config noise_modeling/configs/ai_v3_history_gru
 Evaluate:
 
 ```bash
-python -m noise_modeling.evaluate --checkpoint outputs/noise_modeling/checkpoints/ai_v1_mlp/best.pt --split test
-python -m noise_modeling.evaluate --checkpoint outputs/noise_modeling/checkpoints/ai_v2_hetero_mlp/best.pt --split test
-python -m noise_modeling.evaluate --checkpoint outputs/noise_modeling/checkpoints/ai_v3_history_gru/best.pt --split test
+python -m noise_modeling.evaluate --checkpoint /content/drive/MyDrive/iwre-planner/outputs/noise_modeling/checkpoints/ai_v1_mlp/best.pt --split test
+python -m noise_modeling.evaluate --checkpoint /content/drive/MyDrive/iwre-planner/outputs/noise_modeling/checkpoints/ai_v2_hetero_mlp/best.pt --split test
+python -m noise_modeling.evaluate --checkpoint /content/drive/MyDrive/iwre-planner/outputs/noise_modeling/checkpoints/ai_v3_history_gru/best.pt --split test
 ```
-
