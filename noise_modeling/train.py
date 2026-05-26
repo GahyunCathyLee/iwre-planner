@@ -185,7 +185,7 @@ def main() -> None:
                 {
                     "model_state_dict": model.state_dict(),
                     "config": config,
-                    "target_std": target_std.numpy(),
+                    "target_std": target_std.tolist(),
                     "best_val_loss": best_val,
                     "epoch": epoch,
                 },

@@ -23,7 +23,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    checkpoint = torch.load(args.checkpoint, map_location=args.device)
+    checkpoint = torch.load(args.checkpoint, map_location=args.device, weights_only=False)
     config = checkpoint["config"]
     device = torch.device(args.device)
     dataset = make_dataset(config, args.split, args.limit_shards)
@@ -64,4 +64,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
