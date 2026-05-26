@@ -8,7 +8,7 @@ seed: 42
 behavior_mix: [constant_speed, sudden_brake, sudden_accel, cut_in_left, cut_in_right]
 ego:
   spawn:
-    index: 0
+    index: 76
 noise:
   mode: medium
   high_noise_bias: 0.6

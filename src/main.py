@@ -54,6 +54,12 @@ def get_args():
     parser.add_argument("--tm-port", type=int, default=TRAFFIC_MANAGER_PORT)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--scenario", default=None)
+    parser.add_argument(
+        "--noise-mode",
+        default=None,
+        choices=["none", "very_low", "low", "medium", "medium_high", "high", "very_high"],
+    )
+    parser.add_argument("--noise-scale", type=float, default=None)
     parser.add_argument("--planner", default="B1", choices=["B1", "B2", "B3", "b1", "b2", "b3"])
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--verbose", action="store_true")
@@ -97,6 +103,10 @@ def main():
             scenario_config.steps = args.steps
         if args.fps is not None:
             scenario_config.fps = args.fps
+        if args.noise_mode is not None:
+            scenario_config.noise["mode"] = args.noise_mode
+        if args.noise_scale is not None:
+            scenario_config.noise["scale"] = args.noise_scale
         ScenarioRunner(args, scenario_config).run()
         return
 

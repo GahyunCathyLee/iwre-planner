@@ -1,1 +1,2 @@
-"""Scenario framework for reusable CARLA experiments."""
+"""Scenario loading and execution helpers."""
+

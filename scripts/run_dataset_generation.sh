@@ -4,8 +4,17 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PLANNER="${PLANNER:-B1}"
-SEEDS="${SEEDS:-1 2 3 4 5}"
-PYTHON_CMD="${PYTHON_CMD:-python}"
+PLANNER="${PLANNER^^}"
+SEEDS="${SEEDS:-81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120}"
+STEPS="${STEPS:-300}"
+NOISE_SCALES="${NOISE_SCALES:-0.00 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00}"
+if [[ -z "${PYTHON_CMD:-}" ]]; then
+  if [[ -x "${HOME}/miniconda3/envs/iwre-planner/bin/python" ]]; then
+    PYTHON_CMD="${HOME}/miniconda3/envs/iwre-planner/bin/python"
+  else
+    PYTHON_CMD="python"
+  fi
+fi
 CARLA_HOST="${CARLA_HOST:-localhost}"
 CARLA_PORT="${CARLA_PORT:-2000}"
 TM_PORT="${TM_PORT:-8000}"
@@ -24,7 +33,6 @@ DEFAULT_SCENARIOS=(
   "configs/scenarios/ego_lane_change_conditional_left.yaml"
   "configs/scenarios/ego_lane_change_conditional_right.yaml"
   "configs/scenarios/dense_mixed.yaml"
-  "configs/scenarios/random_batch.yaml"
 )
 
 if [[ -n "${SCENARIOS:-}" ]]; then
@@ -35,7 +43,10 @@ fi
 
 echo "[INFO] Dataset generation"
 echo "[INFO] planner=${PLANNER}"
+echo "[INFO] python=${PYTHON_CMD}"
 echo "[INFO] seeds=${SEEDS}"
+echo "[INFO] steps=${STEPS}"
+echo "[INFO] noise_scales=${NOISE_SCALES}"
 echo "[INFO] scenarios=${SCENARIO_LIST[*]}"
 echo "[INFO] restart_carla=${RESTART_CARLA}"
 echo "[INFO] continue_on_error=${CONTINUE_ON_ERROR}"
@@ -100,6 +111,7 @@ run_simulation() {
   local planner="$2"
   local seed="$3"
   local run_id="$4"
+  local noise_scale="$5"
 
   if [[ "$RESTART_CARLA" == "1" ]]; then
     start_carla "$run_id"
@@ -112,8 +124,9 @@ run_simulation() {
     --tm-port "$TM_PORT" \
     --scenario "$scenario" \
     --planner "$planner" \
-    --run-id "$run_id" \
-    --seed "$seed"
+    --seed "$seed" \
+    --steps "$STEPS" \
+    --noise-scale "$noise_scale"
   local status="$?"
   set -e
 
@@ -142,11 +155,16 @@ for scenario in "${SCENARIO_LIST[@]}"; do
       "import sys; sys.path.insert(0, 'src'); from scenario.scenario_loader import load_scenario; print(load_scenario('$scenario').scenario_id)"
   )"
 
+  read -r -a NOISE_SCALE_LIST <<< "$NOISE_SCALES"
+  noise_scale_count="${#NOISE_SCALE_LIST[@]}"
+
   for seed in $SEEDS; do
     run_id="s${scenario_id}_${PLANNER}_seed${seed}"
-    echo "[INFO] Running ${run_id}"
+    noise_index=$(( (seed + noise_scale_count - 1) % noise_scale_count ))
+    noise_scale="${NOISE_SCALE_LIST[$noise_index]}"
+    echo "[INFO] Running ${run_id} noise_scale=${noise_scale}"
 
-    if ! run_simulation "$scenario" "$PLANNER" "$seed" "$run_id"; then
+    if ! run_simulation "$scenario" "$PLANNER" "$seed" "$run_id" "$noise_scale"; then
       echo "[ERROR] Simulation failed: ${run_id}" >&2
       if [[ "$CONTINUE_ON_ERROR" != "1" ]]; then
         exit 1

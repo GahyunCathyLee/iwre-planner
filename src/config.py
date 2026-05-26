@@ -4,8 +4,8 @@ Configuration values for B1: IDM-only baseline.
 
 # Simulation
 DEFAULT_MAP = "Town04"
-DEFAULT_FPS = 20.0
-DEFAULT_STEPS = 500
+DEFAULT_FPS = 10.0
+DEFAULT_STEPS = 400
 DEFAULT_NUM_NPC = 10
 
 # Traffic Manager
