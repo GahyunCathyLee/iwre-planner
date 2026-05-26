@@ -1,0 +1,30 @@
+experiment_name: ai_v1_mlp
+seed: 42
+output_dir: outputs/noise_modeling/checkpoints
+
+data:
+  npz_root: outputs/noise_modeling/npz
+  normalization_stats: outputs/noise_modeling/normalization_stats.json
+  feature_set: v1
+  use_sequence: false
+  normalize_features: true
+  normalize_targets: true
+
+model:
+  type: mlp_v1
+  input_dim: 7
+  hidden_dims: [128, 128, 64]
+  dropout: 0.0
+
+training:
+  batch_size: 4096
+  eval_batch_size: 8192
+  epochs: 100
+  lr: 0.001
+  weight_decay: 0.00001
+  loss: mse
+  lambda_state: 0.0
+  early_stopping_patience: 12
+  num_workers: 2
+  grad_clip: 5.0
+

@@ -1,0 +1,33 @@
+experiment_name: ai_v3_history_gru
+seed: 42
+output_dir: outputs/noise_modeling/checkpoints
+
+data:
+  npz_root: outputs/noise_modeling/npz
+  normalization_stats: outputs/noise_modeling/normalization_stats.json
+  feature_set: v3
+  use_sequence: true
+  normalize_features: true
+  normalize_targets: true
+
+model:
+  type: history_gru_v3
+  input_dim: 12
+  hidden_dim: 128
+  num_layers: 1
+  head_hidden_dims: [128, 64]
+  dropout: 0.0
+  output_type: heteroscedastic
+  min_sigma: 0.0001
+
+training:
+  batch_size: 2048
+  eval_batch_size: 4096
+  epochs: 120
+  lr: 0.001
+  weight_decay: 0.00001
+  loss: gaussian_nll
+  lambda_state: 0.1
+  early_stopping_patience: 15
+  num_workers: 2
+  grad_clip: 5.0
