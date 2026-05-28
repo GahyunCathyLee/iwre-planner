@@ -1,6 +1,8 @@
 import math
 import random
+import sys
 import time
+from pathlib import Path
 
 import carla
 
@@ -30,6 +32,10 @@ from utils.carla_utils import cleanup_actors, reset_world_settings, set_synchron
 from utils.logger import CSVLogger
 
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 SLOT_NAMES = [
     "preceding",
     "following",
@@ -57,10 +63,25 @@ class ScenarioRunner:
         )
         self._sigma_history = {}
         self.sigma_runtime = None
+        self.track_a_estimator = None
+        self.track_b_runtime = None
         sigma_model_path = getattr(args, "sigma_model_path", None)
         if self.sigma_source in DEFAULT_SIGMA_MODEL_PATHS and not sigma_model_path:
             sigma_model_path = DEFAULT_SIGMA_MODEL_PATHS[self.sigma_source]
-        if sigma_model_path:
+        if self.sigma_source == "track_a":
+            from uncertainty.track_a import TrackAEstimator
+
+            self.track_a_estimator = TrackAEstimator()
+        if self.sigma_source == "track_b":
+            if not sigma_model_path:
+                raise ValueError("SIGMA_SOURCE=track_b requires --sigma-model-path.")
+            from uncertainty.runtime import TrackBLSTMRuntime
+
+            self.track_b_runtime = TrackBLSTMRuntime(
+                checkpoint_path=sigma_model_path,
+                history=int(getattr(args, "sigma_history", 10)),
+            )
+        elif sigma_model_path:
             self.sigma_runtime = NoiseSigmaRuntime(
                 checkpoint_path=sigma_model_path,
                 history=int(getattr(args, "sigma_history", 10)),
@@ -474,6 +495,24 @@ class ScenarioRunner:
                 sigma_v2=sigma_v2,
                 sigma_v3=sigma_v3,
             )
+            sigma_track_a = self._predict_track_a_sigma(
+                vehicle_id=vehicle.id,
+                dx_obs=dx_obs,
+                dy_obs=dy_obs,
+                vx_obs=vx_obs,
+                vy_obs=vy_obs,
+                ego_velocity=ego_velocity,
+                visible=True,
+            )
+            sigma_track_b = self._predict_track_b_sigma(
+                run_id=run_id,
+                vehicle_id=vehicle.id,
+                dx_obs=dx_obs,
+                dy_obs=dy_obs,
+                vx_obs=vx_obs,
+                vy_obs=vy_obs,
+                ego_velocity=ego_velocity,
+            )
             alpha = self._alpha(distance_true, is_front, is_adjacent, is_rear)
             planner_sigma = self._select_sigma_value(
                 sigma_estimated=sigma_estimated,
@@ -481,6 +520,8 @@ class ScenarioRunner:
                 sigma_v2=sigma_v2,
                 sigma_v3=sigma_v3,
                 sigma_model=sigma_model,
+                sigma_track_a=sigma_track_a,
+                sigma_track_b=sigma_track_b,
             )
             planner_risk = self._planner_risk(planner_sigma, alpha)
             ttc_true = self._ttc(longitudinal_true, relative_speed_true, is_front)
@@ -660,7 +701,42 @@ class ScenarioRunner:
         }
         return self.sigma_runtime.predict((run_id, vehicle_id), features)
 
-    def _select_sigma_value(self, sigma_estimated, sigma_v1, sigma_v2, sigma_v3, sigma_model=None):
+    def _predict_track_a_sigma(self, vehicle_id, dx_obs, dy_obs, vx_obs, vy_obs, ego_velocity, visible=True):
+        if self.track_a_estimator is None:
+            return None
+        dvx_obs = vx_obs - ego_velocity.x
+        dvy_obs = vy_obs - ego_velocity.y
+        output = self.track_a_estimator.step(str(vehicle_id), dx_obs, dy_obs, dvx_obs, dvy_obs, visible)
+        return output["sigma_a"]
+
+    def _predict_track_b_sigma(self, run_id, vehicle_id, dx_obs, dy_obs, vx_obs, vy_obs, ego_velocity):
+        if self.track_b_runtime is None:
+            return None
+        return self.track_b_runtime.predict(
+            (run_id, vehicle_id),
+            {
+                "dx": dx_obs,
+                "dy": dy_obs,
+                "dvx": vx_obs - ego_velocity.x,
+                "dvy": vy_obs - ego_velocity.y,
+                "dyaw": 0.0,
+            },
+        )
+
+    def _select_sigma_value(
+        self,
+        sigma_estimated,
+        sigma_v1,
+        sigma_v2,
+        sigma_v3,
+        sigma_model=None,
+        sigma_track_a=None,
+        sigma_track_b=None,
+    ):
+        if self.sigma_source == "track_a":
+            return sigma_estimated if sigma_track_a is None else sigma_track_a
+        if self.sigma_source == "track_b":
+            return sigma_estimated if sigma_track_b is None else sigma_track_b
         if self.sigma_source in ("ai_v1", "ai_v2", "ai_v3", "model"):
             return sigma_estimated if sigma_model is None else sigma_model
         if self.sigma_source == "v1":

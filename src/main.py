@@ -64,8 +64,8 @@ def get_args():
     parser.add_argument(
         "--sigma-source",
         default="estimated",
-        choices=["estimated", "v1", "v2", "v3", "ai_v1", "ai_v2", "ai_v3", "model"],
-        help="Sigma source for B2/B3. ai_v* use trained noise-model checkpoints.",
+        choices=["estimated", "v1", "v2", "v3", "ai_v1", "ai_v2", "ai_v3", "model", "track_a", "track_b"],
+        help="Sigma source for B2/B3. track_a is rule/KF fusion; track_b is the LSTM uncertainty checkpoint.",
     )
     parser.add_argument("--sigma-model-path", default=None, help="Optional trained noise-model checkpoint for online sigma.")
     parser.add_argument("--sigma-history", type=int, default=10)

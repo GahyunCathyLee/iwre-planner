@@ -36,7 +36,8 @@ CONTINUE_ON_ERROR="${CONTINUE_ON_ERROR:-1}"
 RUN_MANIFEST="${RUN_MANIFEST:-outputs/logs/dataset_generation_manifest.csv}"
 
 if [[ "${SIGMA_SOURCE,,}" == "all" || "${SIGMA_SOURCES,,}" == "all" ]]; then
-  SIGMA_SOURCES="estimated v1 v2 v3 ai_v1 ai_v2 ai_v3"
+  SIGMA_SOURCES="estimated v1 v2 v3 ai_v1 ai_v2 ai_v3 track_a"
+  echo "[INFO] SIGMA_SOURCE=all excludes track_b; run SIGMA_SOURCE=track_b with SIGMA_MODEL_PATH after training."
 fi
  
 DEFAULT_SCENARIOS=(
@@ -288,11 +289,11 @@ for scenario in "${SCENARIO_LIST[@]}"; do
         sigma_source_item="estimated"
         sigma_model_path=""
       fi
-      if [[ "$sigma_source_item" != "model" && "$sigma_source_item" != ai_v* ]]; then
+      if [[ "$sigma_source_item" != "model" && "$sigma_source_item" != ai_v* && "$sigma_source_item" != "track_b" ]]; then
         sigma_model_path=""
       fi
-      if [[ "$sigma_source_item" == "model" && -z "$sigma_model_path" ]]; then
-        echo "[ERROR] SIGMA_SOURCE=model requires SIGMA_MODEL_PATH." >&2
+      if [[ ( "$sigma_source_item" == "model" || "$sigma_source_item" == "track_b" ) && -z "$sigma_model_path" ]]; then
+        echo "[ERROR] SIGMA_SOURCE=${sigma_source_item} requires SIGMA_MODEL_PATH." >&2
         exit 1
       fi
       tag="$(sanitize_tag "$RUN_TAG")"
