@@ -61,6 +61,16 @@ def get_args():
     )
     parser.add_argument("--noise-scale", type=float, default=None)
     parser.add_argument("--planner", default="B1", choices=["B1", "B2", "B3", "b1", "b2", "b3"])
+    parser.add_argument(
+        "--sigma-source",
+        default="estimated",
+        choices=["estimated", "v1", "v2", "v3", "ai_v1", "ai_v2", "ai_v3", "model"],
+        help="Sigma source for B2/B3. ai_v* use trained noise-model checkpoints.",
+    )
+    parser.add_argument("--sigma-model-path", default=None, help="Optional trained noise-model checkpoint for online sigma.")
+    parser.add_argument("--sigma-history", type=int, default=10)
+    parser.add_argument("--risk-gain", type=float, default=0.5)
+    parser.add_argument("--min-distance-scale", type=float, default=0.2)
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--alpha-model-path", default=None, help="Optional GRIP alpha checkpoint for online alpha logging.")
     parser.add_argument("--alpha-history", type=int, default=6)

@@ -11,7 +11,7 @@
 | 항목 | 기본값 | 설명 |
 |---|---:|---|
 | `PLANNER` | `B1` | IDM 기반 baseline planner |
-| `SEEDS` | `81`-`120` | 각 시나리오별 반복 실행 seed |
+| `SEEDS` | `1`-`20` | 각 시나리오별 반복 실행 seed |
 | `STEPS` | `300` | run당 simulation step 수. 스크립트에서 `--steps`로 YAML 값을 override |
 | `NOISE_SCALES` | `0.00`-`2.00` | seed별로 순환 배정되는 observation noise scale |
 | `SCENARIOS` | 아래 기본 시나리오 목록 | 지정하지 않으면 script 내부 기본 목록 사용 |
@@ -39,17 +39,35 @@ outputs/logs/<run_id>_ego.csv
 outputs/logs/<run_id>_nbr.csv
 ```
 
+`scripts/run_dataset_generation.sh`를 사용하면 실행 manifest도 함께 누적 저장된다.
+
+```text
+outputs/logs/dataset_generation_manifest.csv
+```
+
+이 파일에는 `run_id`, `planner`, `sigma_source`, `sigma_model_path`, `alpha_model_path`, `scenario`, `seed`, `noise_scale`, `status`, ego/nbr/carla log path가 기록된다.
+
 `run_id` 형식은 다음과 같다.
 
 ```text
 s<scenario_id>_<planner>_seed<seed>
 ```
 
+B2/B3처럼 sigma source를 쓰는 run은 다음 형식으로 저장된다.
+
+```text
+s<scenario_id>_<planner>_sig<sigma_source>_seed<seed>
+```
+
+`RUN_TAG`를 지정하면 seed 앞에 tag가 추가되어 같은 sigma source의 다른 checkpoint 실험도 구분할 수 있다.
+
 예시는 다음과 같다.
 
 ```text
 outputs/logs/s4_B1_seed81_ego.csv
 outputs/logs/s4_B1_seed81_nbr.csv
+outputs/logs/s4_B3_sigai_v2_seed81_ego.csv
+outputs/logs/s4_B3_sigai_v2_seed81_nbr.csv
 ```
 
 각 파일의 역할은 다음과 같다.
@@ -89,6 +107,10 @@ outputs/logs/s4_B1_seed81_nbr.csv
 | `brake` | planner/controller가 적용한 brake 명령. 0-1 범위 |
 | `steer` | planner/controller가 적용한 steering 명령. 현재 B1에서는 `0.000` |
 | `lane_id` | ego 차량 위치의 CARLA lane id |
+| `planner_sigma_source` | B2/B3 planner가 사용한 sigma 선택값. 예: `estimated`, `v1`, `v2`, `v3`, `ai_v1`, `ai_v2`, `ai_v3`, `model` |
+| `planner_risk` | 해당 step에서 longitudinal IDM 입력에 반영된 최종 risk 값. B1은 `0.000` |
+| `front_distance` | planner가 선택한 실제 front/relevant vehicle 거리 |
+| `effective_front_distance` | risk를 반영해 축소된 IDM 입력 거리. B2/B3에서 사용 |
 | `preceding` | ego와 같은 차선에서 ego 앞쪽에 있는 가장 가까운 neighbor vehicle id |
 | `following` | ego와 같은 차선에서 ego 뒤쪽에 있는 가장 가까운 neighbor vehicle id |
 | `leftPreceding` | ego 기준 좌측 인접 차선 앞쪽의 가장 가까운 neighbor vehicle id |
@@ -171,6 +193,10 @@ Slot column 값이 비어 있으면 해당 step에서 그 slot에 할당된 neig
 | `velocity_error` | 적용된 속도 noise 크기. `sqrt(velocity_noise_x^2 + velocity_noise_y^2)` |
 | `sigma_label` | 실제로 주입된 noise error를 기반으로 만든 label. 0-1 범위 |
 | `sigma_estimated` | distance와 noise std를 기반으로 추정한 uncertainty. 0-1 범위 |
+| `sigma_v1` | ego 관측 거리 기반 online sigma. `distance_obs`만 사용 |
+| `sigma_v2` | ego 관측 history 기반 constant-velocity innovation sigma |
+| `sigma_v3` | `sigma_v2`의 EMA smoothing sigma |
+| `planner_sigma` | 현재 planner 실행에서 선택된 sigma 값. `ai_v*`/`model`이면 학습된 sigma checkpoint의 online 추정값 |
 
 `noise_position_std`와 `noise_velocity_std`는 거리, 상대 각도, 상대 속도, 차선 관계, cut-in actor 여부 등을 반영해 계산된다.
 
@@ -179,7 +205,7 @@ Slot column 값이 비어 있으면 해당 step에서 그 slot에 할당된 neig
 | Column | 의미 |
 |---|---|
 | `alpha` | ego와 neighbor의 관계 및 거리에 따른 중요도 가중치. 앞차가 가장 크고, 옆차/뒤차/기타 순으로 낮아짐 |
-| `risk` | `sigma_estimated * alpha` |
+| `risk` | planner별 최종 risk. B1은 `0`, B2는 `planner_sigma`, B3는 `planner_sigma * alpha` |
 | `ttc_true` | ground truth 기준 time-to-collision. ego 앞 같은 차선 차량이고 ego가 접근 중일 때만 값이 있음 |
 | `ttc_obs` | noisy observation 기준 time-to-collision. 조건은 `ttc_true`와 동일 |
 | `near_miss_true` | `ttc_true`가 threshold 이하이면 1, 아니면 0 |

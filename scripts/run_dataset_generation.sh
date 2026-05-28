@@ -5,7 +5,17 @@ cd "$(dirname "$0")/.."
 
 PLANNER="${PLANNER:-B1}"
 PLANNER="${PLANNER^^}"
-SEEDS="${SEEDS:-81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120}"
+PLANNERS="${PLANNERS:-$PLANNER}"
+SIGMA_SOURCE="${SIGMA_SOURCE:-estimated}"
+SIGMA_SOURCES="${SIGMA_SOURCES:-$SIGMA_SOURCE}"
+SIGMA_MODEL_PATH="${SIGMA_MODEL_PATH:-}"
+SIGMA_HISTORY="${SIGMA_HISTORY:-10}"
+RUN_TAG="${RUN_TAG:-}"
+RISK_GAIN="${RISK_GAIN:-0.5}"
+MIN_DISTANCE_SCALE="${MIN_DISTANCE_SCALE:-0.2}"
+ALPHA_MODEL_PATH="${ALPHA_MODEL_PATH:-}"
+ALPHA_HISTORY="${ALPHA_HISTORY:-6}"
+SEEDS="${SEEDS:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20}"
 STEPS="${STEPS:-300}"
 NOISE_SCALES="${NOISE_SCALES:-0.00 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00}"
 if [[ -z "${PYTHON_CMD:-}" ]]; then
@@ -23,11 +33,16 @@ CARLA_WAIT_TIMEOUT="${CARLA_WAIT_TIMEOUT:-120}"
 CARLA_COOLDOWN_SEC="${CARLA_COOLDOWN_SEC:-5}"
 CARLA_LOG_DIR="${CARLA_LOG_DIR:-outputs/carla_logs}"
 CONTINUE_ON_ERROR="${CONTINUE_ON_ERROR:-1}"
+RUN_MANIFEST="${RUN_MANIFEST:-outputs/logs/dataset_generation_manifest.csv}"
 
+if [[ "${SIGMA_SOURCE,,}" == "all" || "${SIGMA_SOURCES,,}" == "all" ]]; then
+  SIGMA_SOURCES="estimated v1 v2 v3 ai_v1 ai_v2 ai_v3"
+fi
+ 
 DEFAULT_SCENARIOS=(
-  "configs/scenarios/lf_basic.yaml"
-  "configs/scenarios/front_sudden_brake.yaml"
-  "configs/scenarios/front_sudden_accel.yaml"
+#  "configs/scenarios/lf_basic.yaml"
+#  "configs/scenarios/front_sudden_brake.yaml"
+# "configs/scenarios/front_sudden_accel.yaml"
   "configs/scenarios/cut_in_left.yaml"
   "configs/scenarios/cut_in_right.yaml"
   "configs/scenarios/ego_lane_change_conditional_left.yaml"
@@ -42,7 +57,14 @@ else
 fi
 
 echo "[INFO] Dataset generation"
-echo "[INFO] planner=${PLANNER}"
+echo "[INFO] planners=${PLANNERS}"
+echo "[INFO] sigma_sources=${SIGMA_SOURCES}"
+echo "[INFO] sigma_model_path=${SIGMA_MODEL_PATH:-<auto/none>}"
+echo "[INFO] sigma_history=${SIGMA_HISTORY}"
+echo "[INFO] run_tag=${RUN_TAG:-<none>}"
+echo "[INFO] risk_gain=${RISK_GAIN}"
+echo "[INFO] min_distance_scale=${MIN_DISTANCE_SCALE}"
+echo "[INFO] alpha_model_path=${ALPHA_MODEL_PATH:-<heuristic>}"
 echo "[INFO] python=${PYTHON_CMD}"
 echo "[INFO] seeds=${SEEDS}"
 echo "[INFO] steps=${STEPS}"
@@ -50,8 +72,16 @@ echo "[INFO] noise_scales=${NOISE_SCALES}"
 echo "[INFO] scenarios=${SCENARIO_LIST[*]}"
 echo "[INFO] restart_carla=${RESTART_CARLA}"
 echo "[INFO] continue_on_error=${CONTINUE_ON_ERROR}"
+echo "[INFO] run_manifest=${RUN_MANIFEST}"
 
 mkdir -p "$CARLA_LOG_DIR"
+mkdir -p "$(dirname "$RUN_MANIFEST")"
+
+if [[ ! -f "$RUN_MANIFEST" ]]; then
+  printf '%s\n' \
+    "run_id,planner,sigma_source,sigma_model_path,alpha_model_path,scenario,scenario_id,seed,steps,noise_scale,risk_gain,min_distance_scale,status,ego_log,nbr_log,carla_log" \
+    > "$RUN_MANIFEST"
+fi
 
 CARLA_PID=""
 
@@ -112,21 +142,39 @@ run_simulation() {
   local seed="$3"
   local run_id="$4"
   local noise_scale="$5"
+  local sigma_source="$6"
+  local sigma_model_path="$7"
 
   if [[ "$RESTART_CARLA" == "1" ]]; then
     start_carla "$run_id"
   fi
 
-  set +e
-  "$PYTHON_CMD" src/main.py \
-    --host "$CARLA_HOST" \
-    --port "$CARLA_PORT" \
-    --tm-port "$TM_PORT" \
-    --scenario "$scenario" \
-    --planner "$planner" \
-    --seed "$seed" \
-    --steps "$STEPS" \
+  local cmd=(
+    "$PYTHON_CMD" src/main.py
+    --host "$CARLA_HOST"
+    --port "$CARLA_PORT"
+    --tm-port "$TM_PORT"
+    --scenario "$scenario"
+    --planner "$planner"
+    --run-id "$run_id"
+    --sigma-source "$sigma_source"
+    --sigma-history "$SIGMA_HISTORY"
+    --risk-gain "$RISK_GAIN"
+    --min-distance-scale "$MIN_DISTANCE_SCALE"
+    --seed "$seed"
+    --steps "$STEPS"
     --noise-scale "$noise_scale"
+    --alpha-history "$ALPHA_HISTORY"
+  )
+  if [[ -n "$ALPHA_MODEL_PATH" ]]; then
+    cmd+=(--alpha-model-path "$ALPHA_MODEL_PATH")
+  fi
+  if [[ -n "$sigma_model_path" ]]; then
+    cmd+=(--sigma-model-path "$sigma_model_path")
+  fi
+
+  set +e
+  "${cmd[@]}"
   local status="$?"
   set -e
 
@@ -137,12 +185,80 @@ run_simulation() {
   return "$status"
 }
 
+sanitize_tag() {
+  local value="$1"
+  value="${value//[^A-Za-z0-9_.-]/_}"
+  value="${value##_}"
+  value="${value%%_}"
+  printf '%s' "$value"
+}
+
+make_run_id() {
+  local scenario_id="$1"
+  local planner="$2"
+  local sigma_source="$3"
+  local seed="$4"
+  local tag="$5"
+
+  if [[ "$planner" == "B1" ]]; then
+    if [[ -n "$tag" ]]; then
+      printf 's%s_%s_%s_seed%s' "$scenario_id" "$planner" "$tag" "$seed"
+    else
+      printf 's%s_%s_seed%s' "$scenario_id" "$planner" "$seed"
+    fi
+    return
+  fi
+
+  if [[ -n "$tag" ]]; then
+    printf 's%s_%s_sig%s_%s_seed%s' "$scenario_id" "$planner" "$sigma_source" "$tag" "$seed"
+  else
+    printf 's%s_%s_sig%s_seed%s' "$scenario_id" "$planner" "$sigma_source" "$seed"
+  fi
+}
+
+append_manifest() {
+  local run_id="$1"
+  local planner="$2"
+  local sigma_source="$3"
+  local sigma_model_path="$4"
+  local scenario="$5"
+  local scenario_id="$6"
+  local seed="$7"
+  local noise_scale="$8"
+  local status="$9"
+  local carla_log="${CARLA_LOG_DIR}/${run_id}_carla.log"
+  local ego_log="outputs/logs/${run_id}_ego.csv"
+  local nbr_log="outputs/logs/${run_id}_nbr.csv"
+
+  printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+    "$run_id" \
+    "$planner" \
+    "$sigma_source" \
+    "$sigma_model_path" \
+    "$ALPHA_MODEL_PATH" \
+    "$scenario" \
+    "$scenario_id" \
+    "$seed" \
+    "$STEPS" \
+    "$noise_scale" \
+    "$RISK_GAIN" \
+    "$MIN_DISTANCE_SCALE" \
+    "$status" \
+    "$ego_log" \
+    "$nbr_log" \
+    "$carla_log" \
+    >> "$RUN_MANIFEST"
+}
+
 trap stop_carla EXIT
 
 if [[ "$RESTART_CARLA" != "1" ]]; then
   echo "[INFO] RESTART_CARLA=0, so make sure CARLA is already running in another terminal."
   wait_for_carla
 fi
+
+read -r -a PLANNER_LIST <<< "$PLANNERS"
+read -r -a SIGMA_SOURCE_LIST <<< "$SIGMA_SOURCES"
 
 for scenario in "${SCENARIO_LIST[@]}"; do
   if [[ ! -f "$scenario" ]]; then
@@ -158,18 +274,48 @@ for scenario in "${SCENARIO_LIST[@]}"; do
   read -r -a NOISE_SCALE_LIST <<< "$NOISE_SCALES"
   noise_scale_count="${#NOISE_SCALE_LIST[@]}"
 
-  for seed in $SEEDS; do
-    run_id="s${scenario_id}_${PLANNER}_seed${seed}"
-    noise_index=$(( (seed + noise_scale_count - 1) % noise_scale_count ))
-    noise_scale="${NOISE_SCALE_LIST[$noise_index]}"
-    echo "[INFO] Running ${run_id} noise_scale=${noise_scale}"
+  for planner_item in "${PLANNER_LIST[@]}"; do
+    planner_item="${planner_item^^}"
+    if [[ "$planner_item" == "B1" ]]; then
+      planner_sigma_sources=("none")
+    else
+      planner_sigma_sources=("${SIGMA_SOURCE_LIST[@]}")
+    fi
 
-    if ! run_simulation "$scenario" "$PLANNER" "$seed" "$run_id" "$noise_scale"; then
-      echo "[ERROR] Simulation failed: ${run_id}" >&2
-      if [[ "$CONTINUE_ON_ERROR" != "1" ]]; then
+    for sigma_source_item in "${planner_sigma_sources[@]}"; do
+      sigma_model_path="$SIGMA_MODEL_PATH"
+      if [[ "$sigma_source_item" == "none" ]]; then
+        sigma_source_item="estimated"
+        sigma_model_path=""
+      fi
+      if [[ "$sigma_source_item" != "model" && "$sigma_source_item" != ai_v* ]]; then
+        sigma_model_path=""
+      fi
+      if [[ "$sigma_source_item" == "model" && -z "$sigma_model_path" ]]; then
+        echo "[ERROR] SIGMA_SOURCE=model requires SIGMA_MODEL_PATH." >&2
         exit 1
       fi
-    fi
+      tag="$(sanitize_tag "$RUN_TAG")"
+
+      for seed in $SEEDS; do
+        run_id="$(make_run_id "$scenario_id" "$planner_item" "$sigma_source_item" "$seed" "$tag")"
+        noise_index=$(( (seed + noise_scale_count - 1) % noise_scale_count ))
+        noise_scale="${NOISE_SCALE_LIST[$noise_index]}"
+        echo "[INFO] Running ${run_id} noise_scale=${noise_scale}"
+
+        status="ok"
+        if ! run_simulation "$scenario" "$planner_item" "$seed" "$run_id" "$noise_scale" "$sigma_source_item" "$sigma_model_path"; then
+          echo "[ERROR] Simulation failed: ${run_id}" >&2
+          status="failed"
+          append_manifest "$run_id" "$planner_item" "$sigma_source_item" "$sigma_model_path" "$scenario" "$scenario_id" "$seed" "$noise_scale" "$status"
+          if [[ "$CONTINUE_ON_ERROR" != "1" ]]; then
+            exit 1
+          fi
+        else
+          append_manifest "$run_id" "$planner_item" "$sigma_source_item" "$sigma_model_path" "$scenario" "$scenario_id" "$seed" "$noise_scale" "$status"
+        fi
+      done
+    done
   done
 done
 

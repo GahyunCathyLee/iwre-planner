@@ -22,6 +22,7 @@ from config import (
 )
 from control.vehicle_controller import VehicleController
 from perception.front_vehicle_detector import get_front_vehicle, get_speed
+from perception.noise_model_runtime import DEFAULT_SIGMA_MODEL_PATHS, NoiseSigmaRuntime
 from planner.idm_planner import IDMPlanner
 from scenario.behavior_manager import BehaviorManager
 from scenario.spawn_manager import ScenarioSpawnManager
@@ -46,8 +47,24 @@ class ScenarioRunner:
         self.args = args
         self.scenario_config = scenario_config
         self.planner_name = args.planner.upper()
-        if self.planner_name != "B1":
-            raise NotImplementedError("ScenarioRunner currently supports only planner B1.")
+        if self.planner_name not in ("B1", "B2", "B3"):
+            raise ValueError(f"Unsupported planner: {self.planner_name}")
+        self.sigma_source = str(getattr(args, "sigma_source", "estimated")).lower()
+        self.risk_gain = max(0.0, float(getattr(args, "risk_gain", 0.5)))
+        self.min_distance_scale = min(
+            1.0,
+            max(0.01, float(getattr(args, "min_distance_scale", 0.2))),
+        )
+        self._sigma_history = {}
+        self.sigma_runtime = None
+        sigma_model_path = getattr(args, "sigma_model_path", None)
+        if self.sigma_source in DEFAULT_SIGMA_MODEL_PATHS and not sigma_model_path:
+            sigma_model_path = DEFAULT_SIGMA_MODEL_PATHS[self.sigma_source]
+        if sigma_model_path:
+            self.sigma_runtime = NoiseSigmaRuntime(
+                checkpoint_path=sigma_model_path,
+                history=int(getattr(args, "sigma_history", 10)),
+            )
         self.alpha_runtime = None
         if getattr(args, "alpha_model_path", None):
             from interaction.grip_alpha_runtime import GRIPAlphaRuntime
@@ -161,16 +178,39 @@ class ScenarioRunner:
                     neighbor_vehicles,
                 )
 
-                front_vehicle, front_distance, front_speed = get_front_vehicle(
+                current_nbr_rows = self._collect_neighbor_rows(
+                    world=world,
+                    run_id=run_id,
+                    step=step,
                     ego_vehicle=ego_vehicle,
-                    candidate_vehicles=neighbor_vehicles,
-                    max_distance=IDM_MAX_DETECTION_DISTANCE,
-                    lane_check=True,
+                    vehicle_slots=vehicle_slots,
+                    neighbor_vehicles=neighbor_vehicles,
+                    actor_configs_by_vehicle_id=actor_configs_by_vehicle_id,
+                    collision=step in collision_steps,
                 )
-                relative_speed = 0.0 if front_speed is None else ego_speed - front_speed
+
+                if self.planner_name == "B1":
+                    front_vehicle, front_distance, front_speed = get_front_vehicle(
+                        ego_vehicle=ego_vehicle,
+                        candidate_vehicles=neighbor_vehicles,
+                        max_distance=IDM_MAX_DETECTION_DISTANCE,
+                        lane_check=True,
+                    )
+                    relative_speed = 0.0 if front_speed is None else ego_speed - front_speed
+                    planner_risk = 0.0
+                    effective_front_distance = front_distance
+                else:
+                    front_vehicle, front_distance, relative_speed, planner_risk, effective_front_distance = (
+                        self._select_risk_adjusted_front(
+                            current_nbr_rows,
+                            ego_transform,
+                            ego_speed,
+                        )
+                    )
+
                 acceleration = idm_planner.compute_acceleration(
                     ego_speed=ego_speed,
-                    front_distance=front_distance,
+                    front_distance=effective_front_distance,
                     relative_speed=relative_speed,
                 )
                 control = controller.acceleration_to_control(
@@ -193,24 +233,17 @@ class ScenarioRunner:
                     "brake": f"{control.brake:.3f}",
                     "steer": f"{control.steer:.3f}",
                     "lane_id": ego_lane_id,
+                    "planner_sigma_source": self.sigma_source,
+                    "planner_risk": f"{planner_risk:.3f}",
+                    "front_distance": self._fmt_optional(front_distance),
+                    "effective_front_distance": self._fmt_optional(effective_front_distance),
                 }
                 for slot_name in SLOT_NAMES:
                     vehicle = slot_assignments.get(slot_name)
                     ego_row[slot_name] = vehicle.id if vehicle is not None else ""
                 ego_logger.log(ego_row)
 
-                nbr_rows.extend(
-                    self._collect_neighbor_rows(
-                        world=world,
-                        run_id=run_id,
-                        step=step,
-                        ego_vehicle=ego_vehicle,
-                        vehicle_slots=vehicle_slots,
-                        neighbor_vehicles=neighbor_vehicles,
-                        actor_configs_by_vehicle_id=actor_configs_by_vehicle_id,
-                        collision=step in collision_steps,
-                    )
-                )
+                nbr_rows.extend(current_nbr_rows)
 
                 if self.args.verbose and step % 20 == 0:
                     print(
@@ -218,6 +251,8 @@ class ScenarioRunner:
                         f"speed={ego_speed:.2f} m/s, "
                         f"neighbors={len(neighbor_vehicles)}, "
                         f"front_dist={front_distance if front_distance is not None else 'None'}, "
+                        f"effective_front_dist={effective_front_distance if effective_front_distance is not None else 'None'}, "
+                        f"risk={planner_risk:.3f}, "
                         f"accel={acceleration:.2f}"
                     )
 
@@ -236,7 +271,12 @@ class ScenarioRunner:
             time.sleep(0.5)
 
     def _make_run_id(self):
-        return f"s{self.scenario_config.scenario_id}_{self.planner_name}_seed{self.scenario_config.seed}"
+        if self.planner_name == "B1":
+            return f"s{self.scenario_config.scenario_id}_{self.planner_name}_seed{self.scenario_config.seed}"
+        return (
+            f"s{self.scenario_config.scenario_id}_{self.planner_name}_"
+            f"sig{self.sigma_source}_seed{self.scenario_config.seed}"
+        )
 
     def _spawn_collision_sensor(
         self,
@@ -408,8 +448,41 @@ class ScenarioRunner:
                 noise_velocity_std,
                 distance_true,
             )
+            sigma_v1, sigma_v2, sigma_v3 = self._runtime_sigma_variants(
+                run_id=run_id,
+                vehicle_id=vehicle.id,
+                step=step,
+                time_sec=time_sec,
+                dx_obs=dx_obs,
+                dy_obs=dy_obs,
+                vx_obs=vx_obs,
+                vy_obs=vy_obs,
+                ego_velocity=ego_velocity,
+                distance_obs=math.sqrt(dx_obs * dx_obs + dy_obs * dy_obs),
+            )
+            sigma_model = self._predict_model_sigma(
+                run_id=run_id,
+                vehicle_id=vehicle.id,
+                step=step,
+                time_sec=time_sec,
+                dx_obs=dx_obs,
+                dy_obs=dy_obs,
+                vx_obs=vx_obs,
+                vy_obs=vy_obs,
+                ego_velocity=ego_velocity,
+                sigma_v1=sigma_v1,
+                sigma_v2=sigma_v2,
+                sigma_v3=sigma_v3,
+            )
             alpha = self._alpha(distance_true, is_front, is_adjacent, is_rear)
-            risk = sigma_estimated * alpha
+            planner_sigma = self._select_sigma_value(
+                sigma_estimated=sigma_estimated,
+                sigma_v1=sigma_v1,
+                sigma_v2=sigma_v2,
+                sigma_v3=sigma_v3,
+                sigma_model=sigma_model,
+            )
+            planner_risk = self._planner_risk(planner_sigma, alpha)
             ttc_true = self._ttc(longitudinal_true, relative_speed_true, is_front)
             ttc_obs = self._ttc(longitudinal_obs, relative_speed_obs, is_front)
             near_miss_threshold = self._near_miss_ttc_threshold()
@@ -456,8 +529,12 @@ class ScenarioRunner:
                 "velocity_error": f"{velocity_error:.3f}",
                 "sigma_label": f"{sigma_label:.3f}",
                 "sigma_estimated": f"{sigma_estimated:.3f}",
+                "sigma_v1": f"{sigma_v1:.3f}",
+                "sigma_v2": f"{sigma_v2:.3f}",
+                "sigma_v3": f"{sigma_v3:.3f}",
+                "planner_sigma": f"{planner_sigma:.3f}",
                 "alpha": f"{alpha:.3f}",
-                "risk": f"{risk:.3f}",
+                "risk": f"{planner_risk:.3f}",
                 "ttc_true": self._fmt_optional(ttc_true),
                 "ttc_obs": self._fmt_optional(ttc_obs),
                 "near_miss_true": int(near_miss_true),
@@ -466,7 +543,194 @@ class ScenarioRunner:
             })
 
         self._apply_runtime_alpha(rows, ego_velocity)
+        self._refresh_planner_risk(rows)
         return rows
+
+    def _runtime_sigma_variants(
+        self,
+        run_id,
+        vehicle_id,
+        step,
+        time_sec,
+        dx_obs,
+        dy_obs,
+        vx_obs,
+        vy_obs,
+        ego_velocity,
+        distance_obs,
+    ):
+        sigma_v1 = self._sigma_v1_range(distance_obs)
+        dvx_obs = vx_obs - ego_velocity.x
+        dvy_obs = vy_obs - ego_velocity.y
+        key = (run_id, vehicle_id)
+        previous = self._sigma_history.get(key)
+        if previous is None:
+            delta_time = 0.0
+            position_residual = 0.0
+            velocity_residual = 0.0
+            sigma_v2 = 0.0
+            sigma_v3 = 0.0
+        else:
+            delta_time = max(0.0, time_sec - previous["time_sec"])
+            predicted_dx = previous["dx_obs"] + previous["dvx_obs"] * delta_time
+            predicted_dy = previous["dy_obs"] + previous["dvy_obs"] * delta_time
+            position_residual = math.sqrt(
+                (dx_obs - predicted_dx) ** 2 + (dy_obs - predicted_dy) ** 2
+            )
+            velocity_residual = math.sqrt(
+                (dvx_obs - previous["dvx_obs"]) ** 2 + (dvy_obs - previous["dvy_obs"]) ** 2
+            )
+            sigma_v2 = self._sigma_from_cv_residual(position_residual, velocity_residual)
+            sigma_v3 = 0.7 * previous["sigma_v3"] + 0.3 * sigma_v2
+
+        self._sigma_history[key] = {
+            "step": step,
+            "time_sec": time_sec,
+            "dx_obs": dx_obs,
+            "dy_obs": dy_obs,
+            "dvx_obs": dvx_obs,
+            "dvy_obs": dvy_obs,
+            "sigma_v3": sigma_v3,
+            "delta_time": delta_time,
+            "position_residual": position_residual,
+            "velocity_residual": velocity_residual,
+        }
+        return sigma_v1, sigma_v2, sigma_v3
+
+    @staticmethod
+    def _sigma_v1_range(distance_obs):
+        return min(1.0, max(0.0, 1.0 - math.exp(-0.5 * (distance_obs / 60.0) ** 2)))
+
+    @staticmethod
+    def _sigma_from_cv_residual(position_residual, velocity_residual):
+        score = (position_residual / 1.0) ** 2 + (velocity_residual / 1.5) ** 2
+        return min(1.0, max(0.0, 1.0 - math.exp(-0.5 * score)))
+
+    def _predict_model_sigma(
+        self,
+        run_id,
+        vehicle_id,
+        step,
+        time_sec,
+        dx_obs,
+        dy_obs,
+        vx_obs,
+        vy_obs,
+        ego_velocity,
+        sigma_v1,
+        sigma_v2,
+        sigma_v3,
+    ):
+        if self.sigma_runtime is None:
+            return None
+
+        dvx_obs = vx_obs - ego_velocity.x
+        dvy_obs = vy_obs - ego_velocity.y
+        distance_obs = math.hypot(dx_obs, dy_obs)
+        bearing_obs = math.atan2(dy_obs, dx_obs)
+        ego_speed = math.hypot(ego_velocity.x, ego_velocity.y)
+        neighbor_speed_obs = math.hypot(vx_obs, vy_obs)
+        relative_speed_obs = math.hypot(dvx_obs, dvy_obs)
+        closing_rate = (dx_obs * dvx_obs + dy_obs * dvy_obs) / max(distance_obs, 1.0e-6)
+        history = self._sigma_history.get((run_id, vehicle_id), {})
+        max_step = max(float(self.scenario_config.steps - 1), 1.0)
+        max_time = max(float(self.scenario_config.steps - 1) / self.scenario_config.fps, 1.0e-6)
+        features = {
+            "dx_obs": dx_obs,
+            "dy_obs": dy_obs,
+            "dvx_obs": dvx_obs,
+            "dvy_obs": dvy_obs,
+            "distance_obs": distance_obs,
+            "sin_bearing_obs": math.sin(bearing_obs),
+            "cos_bearing_obs": math.cos(bearing_obs),
+            "relative_speed_obs": relative_speed_obs,
+            "closing_rate": closing_rate,
+            "ego_vx": ego_velocity.x,
+            "ego_vy": ego_velocity.y,
+            "ego_speed": ego_speed,
+            "vx_obs": vx_obs,
+            "vy_obs": vy_obs,
+            "neighbor_speed_obs": neighbor_speed_obs,
+            "step_normalized": float(step) / max_step,
+            "time_sec_normalized": float(time_sec) / max_time,
+            "sigma_v1": sigma_v1,
+            "sigma_v2": sigma_v2,
+            "sigma_v3": sigma_v3,
+            "delta_time": float(history.get("delta_time", 0.0)),
+        }
+        return self.sigma_runtime.predict((run_id, vehicle_id), features)
+
+    def _select_sigma_value(self, sigma_estimated, sigma_v1, sigma_v2, sigma_v3, sigma_model=None):
+        if self.sigma_source in ("ai_v1", "ai_v2", "ai_v3", "model"):
+            return sigma_estimated if sigma_model is None else sigma_model
+        if self.sigma_source == "v1":
+            return sigma_v1
+        if self.sigma_source == "v2":
+            return sigma_v2
+        if self.sigma_source == "v3":
+            return sigma_v3
+        return sigma_estimated
+
+    def _planner_risk(self, sigma, alpha):
+        if self.planner_name == "B1":
+            return 0.0
+        if self.planner_name == "B2":
+            return min(1.0, max(0.0, sigma))
+        return min(1.0, max(0.0, sigma * alpha))
+
+    def _refresh_planner_risk(self, rows):
+        for row in rows:
+            sigma = float(row["planner_sigma"])
+            alpha = float(row["alpha"])
+            row["risk"] = f"{self._planner_risk(sigma, alpha):.3f}"
+
+    def _select_risk_adjusted_front(self, rows, ego_transform, ego_speed):
+        ego_forward = ego_transform.get_forward_vector()
+        best = None
+        for row in rows:
+            if not self._is_planner_relevant_slot(row.get("slot", "")):
+                continue
+
+            dx_obs = float(row["dx_obs"])
+            dy_obs = float(row["dy_obs"])
+            longitudinal = dx_obs * ego_forward.x + dy_obs * ego_forward.y
+            distance_obs = math.sqrt(dx_obs * dx_obs + dy_obs * dy_obs)
+            if distance_obs > IDM_MAX_DETECTION_DISTANCE:
+                continue
+
+            vx_obs = float(row["vx_obs"])
+            vy_obs = float(row["vy_obs"])
+            obs_speed = math.sqrt(vx_obs * vx_obs + vy_obs * vy_obs)
+            relative_speed = ego_speed - obs_speed
+            risk = min(1.0, max(0.0, float(row["risk"])))
+            scale = max(self.min_distance_scale, 1.0 - self.risk_gain * risk)
+            planner_distance = longitudinal if longitudinal > 0.0 else distance_obs
+            effective_distance = max(0.1, planner_distance * scale)
+            candidate = (
+                effective_distance,
+                planner_distance,
+                int(row["vehicle_id"]),
+                relative_speed,
+                risk,
+            )
+            if best is None or candidate[0] < best[0]:
+                best = candidate
+
+        if best is None:
+            return None, None, 0.0, 0.0, None
+
+        effective_distance, actual_distance, vehicle_id, relative_speed, risk = best
+        return vehicle_id, actual_distance, relative_speed, risk, effective_distance
+
+    @staticmethod
+    def _is_planner_relevant_slot(slot):
+        return slot in (
+            "preceding",
+            "leftPreceding",
+            "leftAlongside",
+            "rightPreceding",
+            "rightAlongside",
+        )
 
     def _apply_runtime_alpha(self, rows, ego_velocity):
         if self.alpha_runtime is None or not rows:
@@ -495,9 +759,7 @@ class ScenarioRunner:
             if slot not in alpha_by_slot:
                 continue
             alpha = alpha_by_slot[slot]
-            sigma = float(row["sigma_estimated"])
             row["alpha"] = f"{alpha:.3f}"
-            row["risk"] = f"{sigma * alpha:.3f}"
 
     def _noise_mode(self):
         return str(self.scenario_config.noise.get("mode", "none")).lower()
@@ -662,6 +924,10 @@ class ScenarioRunner:
             "brake",
             "steer",
             "lane_id",
+            "planner_sigma_source",
+            "planner_risk",
+            "front_distance",
+            "effective_front_distance",
             "preceding",
             "following",
             "leftPreceding",
@@ -714,6 +980,10 @@ class ScenarioRunner:
             "velocity_error",
             "sigma_label",
             "sigma_estimated",
+            "sigma_v1",
+            "sigma_v2",
+            "sigma_v3",
+            "planner_sigma",
             "alpha",
             "risk",
             "ttc_true",
