@@ -9,6 +9,7 @@ PLANNERS="${PLANNERS:-$PLANNER}"
 SIGMA_SOURCE="${SIGMA_SOURCE:-estimated}"
 SIGMA_SOURCES="${SIGMA_SOURCES:-$SIGMA_SOURCE}"
 SIGMA_MODEL_PATH="${SIGMA_MODEL_PATH:-}"
+TRACK_B_MODEL_PATH="${TRACK_B_MODEL_PATH:-$SIGMA_MODEL_PATH}"
 SIGMA_HISTORY="${SIGMA_HISTORY:-10}"
 RUN_TAG="${RUN_TAG:-}"
 RISK_GAIN="${RISK_GAIN:-0.5}"
@@ -36,14 +37,13 @@ CONTINUE_ON_ERROR="${CONTINUE_ON_ERROR:-1}"
 RUN_MANIFEST="${RUN_MANIFEST:-outputs/logs/dataset_generation_manifest.csv}"
 
 if [[ "${SIGMA_SOURCE,,}" == "all" || "${SIGMA_SOURCES,,}" == "all" ]]; then
-  SIGMA_SOURCES="estimated v1 v2 v3 ai_v1 ai_v2 ai_v3 track_a"
-  echo "[INFO] SIGMA_SOURCE=all excludes track_b; run SIGMA_SOURCE=track_b with SIGMA_MODEL_PATH after training."
+  SIGMA_SOURCES="estimated v1 v2 v3 ai_v1 ai_v2 ai_v3 track_a track_b"
 fi
- 
+
 DEFAULT_SCENARIOS=(
-#  "configs/scenarios/lf_basic.yaml"
-#  "configs/scenarios/front_sudden_brake.yaml"
-# "configs/scenarios/front_sudden_accel.yaml"
+# "configs/scenarios/lf_basic.yaml"
+  "configs/scenarios/front_sudden_brake.yaml"
+  "configs/scenarios/front_sudden_accel.yaml"
   "configs/scenarios/cut_in_left.yaml"
   "configs/scenarios/cut_in_right.yaml"
   "configs/scenarios/ego_lane_change_conditional_left.yaml"
@@ -61,6 +61,7 @@ echo "[INFO] Dataset generation"
 echo "[INFO] planners=${PLANNERS}"
 echo "[INFO] sigma_sources=${SIGMA_SOURCES}"
 echo "[INFO] sigma_model_path=${SIGMA_MODEL_PATH:-<auto/none>}"
+echo "[INFO] track_b_model_path=${TRACK_B_MODEL_PATH:-<none>}"
 echo "[INFO] sigma_history=${SIGMA_HISTORY}"
 echo "[INFO] run_tag=${RUN_TAG:-<none>}"
 echo "[INFO] risk_gain=${RISK_GAIN}"
@@ -284,13 +285,15 @@ for scenario in "${SCENARIO_LIST[@]}"; do
     fi
 
     for sigma_source_item in "${planner_sigma_sources[@]}"; do
-      sigma_model_path="$SIGMA_MODEL_PATH"
+      sigma_model_path=""
       if [[ "$sigma_source_item" == "none" ]]; then
         sigma_source_item="estimated"
-        sigma_model_path=""
       fi
-      if [[ "$sigma_source_item" != "model" && "$sigma_source_item" != ai_v* && "$sigma_source_item" != "track_b" ]]; then
-        sigma_model_path=""
+      if [[ "$sigma_source_item" == "model" ]]; then
+        sigma_model_path="$SIGMA_MODEL_PATH"
+      fi
+      if [[ "$sigma_source_item" == "track_b" ]]; then
+        sigma_model_path="$TRACK_B_MODEL_PATH"
       fi
       if [[ ( "$sigma_source_item" == "model" || "$sigma_source_item" == "track_b" ) && -z "$sigma_model_path" ]]; then
         echo "[ERROR] SIGMA_SOURCE=${sigma_source_item} requires SIGMA_MODEL_PATH." >&2
