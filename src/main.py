@@ -69,6 +69,7 @@ def get_args():
     )
     parser.add_argument("--sigma-model-path", default=None, help="Optional trained noise-model checkpoint for online sigma.")
     parser.add_argument("--sigma-history", type=int, default=10)
+    parser.add_argument("--sigma-device", default=None, choices=["cpu", "cuda"], help="Optional device override for online sigma models.")
     parser.add_argument("--risk-gain", type=float, default=0.5)
     parser.add_argument("--min-distance-scale", type=float, default=0.2)
     parser.add_argument("--run-id", default=None)

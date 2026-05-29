@@ -11,12 +11,13 @@ SIGMA_SOURCES="${SIGMA_SOURCES:-$SIGMA_SOURCE}"
 SIGMA_MODEL_PATH="${SIGMA_MODEL_PATH:-}"
 TRACK_B_MODEL_PATH="${TRACK_B_MODEL_PATH:-$SIGMA_MODEL_PATH}"
 SIGMA_HISTORY="${SIGMA_HISTORY:-10}"
+SIGMA_DEVICE="${SIGMA_DEVICE:-}"
 RUN_TAG="${RUN_TAG:-}"
-RISK_GAIN="${RISK_GAIN:-0.5}"
-MIN_DISTANCE_SCALE="${MIN_DISTANCE_SCALE:-0.2}"
+RISK_GAIN="${RISK_GAIN:-0.9}"
+MIN_DISTANCE_SCALE="${MIN_DISTANCE_SCALE:-0.1}"
 ALPHA_MODEL_PATH="${ALPHA_MODEL_PATH:-}"
 ALPHA_HISTORY="${ALPHA_HISTORY:-6}"
-SEEDS="${SEEDS:-1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20}"
+SEEDS="${SEEDS:-41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56}"
 STEPS="${STEPS:-300}"
 NOISE_SCALES="${NOISE_SCALES:-0.00 0.25 0.50 0.75 1.00 1.25 1.50 1.75 2.00}"
 if [[ -z "${PYTHON_CMD:-}" ]]; then
@@ -37,11 +38,11 @@ CONTINUE_ON_ERROR="${CONTINUE_ON_ERROR:-1}"
 RUN_MANIFEST="${RUN_MANIFEST:-outputs/logs/dataset_generation_manifest.csv}"
 
 if [[ "${SIGMA_SOURCE,,}" == "all" || "${SIGMA_SOURCES,,}" == "all" ]]; then
-  SIGMA_SOURCES="estimated v1 v2 v3 ai_v1 ai_v2 ai_v3 track_a track_b"
+  SIGMA_SOURCES="v1 v2 v3 ai_v1 ai_v2 ai_v3 track_a track_b"
 fi
 
 DEFAULT_SCENARIOS=(
-# "configs/scenarios/lf_basic.yaml"
+  "configs/scenarios/lf_basic.yaml"
   "configs/scenarios/front_sudden_brake.yaml"
   "configs/scenarios/front_sudden_accel.yaml"
   "configs/scenarios/cut_in_left.yaml"
@@ -63,6 +64,7 @@ echo "[INFO] sigma_sources=${SIGMA_SOURCES}"
 echo "[INFO] sigma_model_path=${SIGMA_MODEL_PATH:-<auto/none>}"
 echo "[INFO] track_b_model_path=${TRACK_B_MODEL_PATH:-<none>}"
 echo "[INFO] sigma_history=${SIGMA_HISTORY}"
+echo "[INFO] sigma_device=${SIGMA_DEVICE:-<auto>}"
 echo "[INFO] run_tag=${RUN_TAG:-<none>}"
 echo "[INFO] risk_gain=${RISK_GAIN}"
 echo "[INFO] min_distance_scale=${MIN_DISTANCE_SCALE}"
@@ -170,6 +172,9 @@ run_simulation() {
   )
   if [[ -n "$ALPHA_MODEL_PATH" ]]; then
     cmd+=(--alpha-model-path "$ALPHA_MODEL_PATH")
+  fi
+  if [[ -n "$SIGMA_DEVICE" ]]; then
+    cmd+=(--sigma-device "$SIGMA_DEVICE")
   fi
   if [[ -n "$sigma_model_path" ]]; then
     cmd+=(--sigma-model-path "$sigma_model_path")

@@ -15,14 +15,23 @@ class TrackBLSTMRuntime:
         import torch
 
         self.torch = torch
-        self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
-        ckpt = torch.load(str(Path(checkpoint_path)), map_location=self.device)
+        requested_device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+        ckpt = torch.load(str(Path(checkpoint_path)), map_location="cpu")
         self.config = LSTMConfig(**ckpt.get("lstm_config", {}))
         self.history_length = int(ckpt.get("history_length", history))
         self.feature_mean = np.asarray(ckpt["feature_mean"], dtype=np.float32)
         self.feature_std = np.maximum(np.asarray(ckpt["feature_std"], dtype=np.float32), 1.0e-6)
-        self.model = LSTMUncertaintyEstimator(self.config).to(self.device)
+        self.device = requested_device
+        self.model = LSTMUncertaintyEstimator(self.config)
         self.model.load_state_dict(ckpt["model_state_dict"])
+        try:
+            self.model = self.model.to(self.device)
+        except RuntimeError as exc:
+            if self.device.type != "cuda":
+                raise
+            print(f"[WARN] Track B CUDA initialization failed ({exc}); falling back to CPU.")
+            self.device = torch.device("cpu")
+            self.model = self.model.to(self.device)
         self.model.eval()
         self._history_by_key: dict[tuple[str, int], deque[dict[str, float]]] = {}
 

@@ -66,6 +66,7 @@ class ScenarioRunner:
         self.track_a_estimator = None
         self.track_b_runtime = None
         sigma_model_path = getattr(args, "sigma_model_path", None)
+        sigma_device = getattr(args, "sigma_device", None)
         if self.sigma_source in DEFAULT_SIGMA_MODEL_PATHS and not sigma_model_path:
             sigma_model_path = DEFAULT_SIGMA_MODEL_PATHS[self.sigma_source]
         if self.sigma_source == "track_a":
@@ -80,11 +81,13 @@ class ScenarioRunner:
             self.track_b_runtime = TrackBLSTMRuntime(
                 checkpoint_path=sigma_model_path,
                 history=int(getattr(args, "sigma_history", 10)),
+                device=sigma_device,
             )
         elif sigma_model_path:
             self.sigma_runtime = NoiseSigmaRuntime(
                 checkpoint_path=sigma_model_path,
                 history=int(getattr(args, "sigma_history", 10)),
+                device=sigma_device,
             )
         self.alpha_runtime = None
         if getattr(args, "alpha_model_path", None):
